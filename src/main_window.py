@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 
 
 class CameraWidget(QWidget):
-    """Left panel: live microscope video feed."""
+    """左侧面板：显微镜实时视频画面"""
     evtCallback = pyqtSignal(int)
 
     def __init__(self, parent=None):
@@ -27,8 +27,8 @@ class CameraWidget(QWidget):
         self.frame = 0
         self.timer = QTimer(self)
 
-        # Video display
-        self.lbl_video = QLabel("No camera connected")
+        # 视频显示区域
+        self.lbl_video = QLabel("未连接相机")
         self.lbl_video.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_video.setStyleSheet(
             "QLabel { background-color: #1a1a2e; color: #888; "
@@ -36,12 +36,12 @@ class CameraWidget(QWidget):
         )
         self.lbl_video.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Camera controls bar
-        self.btn_open = QPushButton("Open Camera")
+        # 相机控制栏
+        self.btn_open = QPushButton("打开相机")
         self.btn_open.setFixedHeight(36)
         self.btn_open.clicked.connect(self.onBtnOpen)
 
-        self.lbl_status = QLabel("Status: Disconnected")
+        self.lbl_status = QLabel("状态：未连接")
         self.lbl_status.setStyleSheet("color: #888; font-size: 12px;")
 
         ctrl_layout = QHBoxLayout()
@@ -59,7 +59,6 @@ class CameraWidget(QWidget):
 
     @staticmethod
     def cameraCallback(nEvent, ctx):
-        """Callback from uvcham.dll internal thread, post to UI thread via signal."""
         ctx.evtCallback.emit(nEvent)
 
     def onEvtCallback(self, nEvent):
@@ -68,10 +67,10 @@ class CameraWidget(QWidget):
                 self.onImageEvent()
             elif uvcham.UVCHAM_EVENT_ERROR & nEvent != 0:
                 self.closeCamera()
-                QMessageBox.warning(self, "Warning", "Camera error.")
+                QMessageBox.warning(self, "警告", "相机发生错误。")
             elif uvcham.UVCHAM_EVENT_DISCONNECT & nEvent != 0:
                 self.closeCamera()
-                QMessageBox.warning(self, "Warning", "Camera disconnected.")
+                QMessageBox.warning(self, "警告", "相机已断开连接。")
 
     def onImageEvent(self):
         self.hcam.pull(self.pData)
@@ -86,7 +85,7 @@ class CameraWidget(QWidget):
 
     def onTimer(self):
         if self.hcam is not None:
-            self.lbl_status.setText(f"Status: Running | Frames: {self.frame}")
+            self.lbl_status.setText(f"状态：运行中 | 帧数：{self.frame}")
 
     def openCamera(self, cam_id):
         self.hcam = uvcham.Uvcham.open(cam_id)
@@ -103,10 +102,10 @@ class CameraWidget(QWidget):
                 self.hcam.start(None, self.cameraCallback, self)  # Pull Mode
             except uvcham.HRESULTException:
                 self.closeCamera()
-                QMessageBox.warning(self, "Warning", "Failed to start camera.")
+                QMessageBox.warning(self, "警告", "启动相机失败。")
             else:
-                self.btn_open.setText("Close Camera")
-                self.lbl_status.setText("Status: Running | Frames: 0")
+                self.btn_open.setText("关闭相机")
+                self.lbl_status.setText("状态：运行中 | 帧数：0")
                 self.timer.start(1000)
 
     def onBtnOpen(self):
@@ -115,7 +114,7 @@ class CameraWidget(QWidget):
         else:
             arr = uvcham.Uvcham.enum()
             if len(arr) == 0:
-                QMessageBox.warning(self, "Warning", "No camera found.")
+                QMessageBox.warning(self, "警告", "未找到相机。")
             elif len(arr) == 1:
                 self.openCamera(arr[0].id)
             else:
@@ -132,33 +131,33 @@ class CameraWidget(QWidget):
             self.hcam.close()
         self.hcam = None
         self.pData = None
-        self.btn_open.setText("Open Camera")
-        self.lbl_status.setText("Status: Disconnected")
+        self.btn_open.setText("打开相机")
+        self.lbl_status.setText("状态：未连接")
         self.lbl_video.clear()
-        self.lbl_video.setText("No camera connected")
+        self.lbl_video.setText("未连接相机")
         self.timer.stop()
 
     def getCurrentFrame(self):
-        """Return current frame as QImage, or None if no camera."""
+        """返回当前帧的 QImage，无相机时返回 None。"""
         if self.hcam is not None and self.pData is not None:
             return QImage(self.pData, self.imgWidth, self.imgHeight, QImage.Format.Format_RGB888)
         return None
 
 
 class AnalysisPanel(QWidget):
-    """Right panel: AI analysis controls and results."""
+    """右侧面板：AI 分析控制与结果展示"""
 
     def __init__(self, camera_widget: CameraWidget, parent=None):
         super().__init__(parent)
         self.camera_widget = camera_widget
 
-        # Title
-        title = QLabel("AI Analysis")
+        # 标题
+        title = QLabel("AI 智能分析")
         title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         title.setStyleSheet("color: #e0e0e0; padding: 8px 0;")
 
-        # AI Analyze button
-        self.btn_analyze = QPushButton("Analyze Current Frame")
+        # AI 分析按钮
+        self.btn_analyze = QPushButton("分析当前画面")
         self.btn_analyze.setFixedHeight(44)
         self.btn_analyze.setStyleSheet("""
             QPushButton {
@@ -178,10 +177,10 @@ class AnalysisPanel(QWidget):
         """)
         self.btn_analyze.clicked.connect(self.onAnalyze)
 
-        # Results display
+        # 结果显示区域
         self.txt_results = QTextEdit()
         self.txt_results.setReadOnly(True)
-        self.txt_results.setPlaceholderText("Analysis results will appear here...")
+        self.txt_results.setPlaceholderText("分析结果将在此处显示...")
         self.txt_results.setStyleSheet("""
             QTextEdit {
                 background-color: #1a1a2e;
@@ -200,30 +199,29 @@ class AnalysisPanel(QWidget):
         self.setLayout(layout)
 
     def onAnalyze(self):
-        """Placeholder for AI analysis logic."""
+        """AI 分析逻辑占位"""
         frame = self.camera_widget.getCurrentFrame()
         if frame is None:
-            self.txt_results.setPlainText("Please open camera first.")
+            self.txt_results.setPlainText("请先打开相机。")
             return
 
-        # TODO: Implement actual AI analysis logic
-        # For now, show placeholder results
+        # TODO: 接入实际的 AI 分析逻辑
         self.txt_results.setHtml(
-            "<h3>Analysis Results</h3>"
-            "<p><b>Algae Concentration:</b></p>"
+            "<h3>分析报告</h3>"
+            "<p><b>藻类浓度：</b></p>"
             "<ul>"
-            "<li>Green algae: -- cells/mL</li>"
-            "<li>Blue-green algae: -- cells/mL</li>"
-            "<li>Diatoms: -- cells/mL</li>"
+            "<li>绿藻：-- cells/mL</li>"
+            "<li>蓝绿藻：-- cells/mL</li>"
+            "<li>硅藻：-- cells/mL</li>"
             "</ul>"
-            "<p><b>Health Assessment:</b></p>"
+            "<p><b>健康度评估：</b></p>"
             "<ul>"
-            "<li>Overall health: --</li>"
-            "<li>Water quality index: --</li>"
+            "<li>整体健康度：--</li>"
+            "<li>水质指数：--</li>"
             "</ul>"
-            "<p><b>Recommendations:</b></p>"
+            "<p><b>养殖建议：</b></p>"
             "<ul>"
-            "<li>TODO: AI analysis not yet implemented</li>"
+            "<li>待接入 AI 分析模块</li>"
             "</ul>"
         )
 
@@ -231,26 +229,26 @@ class AnalysisPanel(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Microscope Algae Analyzer")
+        self.setWindowTitle("显微镜藻类分析系统")
         self.setMinimumSize(1200, 750)
 
-        # Central widget with splitter
+        # 主布局：左右分栏
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left: camera view
+        # 左侧：相机画面
         self.camera_widget = CameraWidget()
 
-        # Right: analysis panel
+        # 右侧：分析面板
         self.analysis_panel = AnalysisPanel(self.camera_widget)
 
         splitter.addWidget(self.camera_widget)
         splitter.addWidget(self.analysis_panel)
-        splitter.setStretchFactor(0, 3)  # Left takes more space
+        splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
 
         self.setCentralWidget(splitter)
 
-        # Global stylesheet
+        # 全局样式
         self.setStyleSheet("""
             QMainWindow { background-color: #0f0f1a; }
             QWidget { background-color: #16213e; color: #e0e0e0; }
