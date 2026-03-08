@@ -1,0 +1,37 @@
+1. DShow
+	uvcham.ax must be registered before use. Run the following command in Administrator mode:
+		regsvr32 x86\uvcham.ax
+		regsvr32 x64\uvcham.ax
+	to register the x86 and x64 versions respectively.
+	
+	
+	Supported interfaces:
+		Filter:
+				IBaseFilter
+				ISpecifyPropertyPages
+				IAMFilterMiscFlags
+				IAMVideoProcAmp
+				IVideoProcAmp
+				ICameraControl
+				IAMCameraControl
+				IUvcham (see uvcham_dshow.h)
+		
+		Output Pin:
+				IPin
+				IAMStreamConfig
+				IKsPropertySet
+				ISpecifyPropertyPages
+				IAMVideoProcAmp
+				IVideoProcAmp
+				ICameraControl
+				IAMCameraControl
+				IUvcham (see uvcham_dshow.h)
+	
+	
+	Output Pin Media Types:
+		MEDIATYPE_Video
+		MEDIASUBTYPE_RGB24 (always RGB24)
+		FORMAT_VideoInfo
+	
+2. Twain
+	Copy x86\uvcham.ds to Windows\twain_32, x64\uvcham.ds to Windows\twain_64, that is all
