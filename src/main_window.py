@@ -10,8 +10,10 @@ from PyQt6.QtGui import QPixmap, QImage, QFont
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QMenu,
-    QSplitter, QFrame, QSizePolicy, QScrollArea, QGridLayout
+    QSplitter, QFrame, QSizePolicy, QScrollArea, QGridLayout,
+    QFileDialog
 )
+from PyQt6.QtPrintSupport import QPrinter
 
 from gemini_service import analyze_images
 
@@ -203,6 +205,7 @@ class AnalysisPanel(QWidget):
         super().__init__(parent)
         self.camera_widget = camera_widget
         self.captured_images = []   # PNG bytes list
+        self._raw_result = ""       # AI 返回的原始 HTML
         self.capture_count = 0      # 当前连拍已截取张数
         self.capture_timer = QTimer(self)
         self.capture_timer.timeout.connect(self._captureOneFrame)
@@ -243,7 +246,7 @@ class AnalysisPanel(QWidget):
             QScrollBar::handle:vertical { background: #555; border-radius: 3px; }
         """)
 
-        # 分析按钮
+        # 分析按钮 + 导出PDF按钮
         self.btn_analyze = QPushButton("分析当前画面")
         self.btn_analyze.setFixedHeight(44)
         self.btn_analyze.setStyleSheet("""
@@ -256,6 +259,24 @@ class AnalysisPanel(QWidget):
             QPushButton:disabled { background-color: #555; color: #999; }
         """)
         self.btn_analyze.clicked.connect(self.onAnalyze)
+
+        self.btn_export = QPushButton("导出PDF")
+        self.btn_export.setFixedHeight(44)
+        self.btn_export.setStyleSheet("""
+            QPushButton {
+                background-color: #e07a2f; color: white; font-size: 15px;
+                font-weight: bold; border: none; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #c96a22; }
+            QPushButton:pressed { background-color: #b05a18; }
+            QPushButton:disabled { background-color: #555; color: #999; }
+        """)
+        self.btn_export.clicked.connect(self.onExportPDF)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addWidget(self.btn_analyze, 3)
+        btn_row.addWidget(self.btn_export, 1)
 
         # 状态标签
         self.lbl_status = QLabel("")
@@ -277,7 +298,7 @@ class AnalysisPanel(QWidget):
         layout.addWidget(title)
         layout.addWidget(self.btn_capture)
         layout.addWidget(self.thumb_scroll)
-        layout.addWidget(self.btn_analyze)
+        layout.addLayout(btn_row)
         layout.addWidget(self.lbl_status)
         layout.addWidget(self.txt_results, 1)
         self.setLayout(layout)
@@ -338,6 +359,45 @@ class AnalysisPanel(QWidget):
             thumb.removed.connect(self.removeImage)
             self.thumb_layout.addWidget(thumb, i // cols, i % cols)
 
+    def onExportPDF(self):
+        """将分析结果导出为 PDF"""
+        html = self.txt_results.toHtml()
+        if not html.strip() or self.txt_results.toPlainText().strip() == "":
+            self.lbl_status.setText("没有可导出的分析结果。")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出PDF", "藻类分析报告.pdf", "PDF文件 (*.pdf)"
+        )
+        if not file_path:
+            return
+
+        # 构建打印用 HTML（白底黑字，适合打印）
+        print_html = f"""
+        <style>
+            body {{ font-family: 'Microsoft YaHei', 'SimSun', sans-serif; color: #222; }}
+            h2 {{ color: #1a5fb4; font-size: 16px; margin: 14px 0 6px 0; padding-bottom: 3px; border-bottom: 1px solid #ccc; }}
+            ul {{ margin: 4px 0; padding-left: 20px; }}
+            li {{ margin: 3px 0; line-height: 1.6; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 8px 0; }}
+            th {{ background-color: #e8f0fe; color: #1a5fb4; padding: 6px 8px; text-align: left; border: 1px solid #bbb; }}
+            td {{ padding: 6px 8px; border: 1px solid #bbb; line-height: 1.5; }}
+            tr:nth-child(even) {{ background-color: #f5f5f5; }}
+        </style>
+        <h1 style="text-align:center; color:#1a5fb4;">藻类AI智慧分析报告</h1>
+        {self._raw_result}
+        """
+
+        printer = QPrinter(QPrinter.Mode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(file_path)
+
+        doc = self.txt_results.document().clone()
+        doc.setHtml(print_html)
+        doc.print(printer)
+
+        self.lbl_status.setText(f"已导出: {os.path.basename(file_path)}")
+
     def onAnalyze(self):
         """将已截取的图像发送给 AI 分析"""
         if not self.captured_images:
@@ -358,6 +418,7 @@ class AnalysisPanel(QWidget):
 
     def onAnalysisFinished(self, result: str):
         """Gemini 返回结果后显示"""
+        self._raw_result = result
         styled_html = f"""
         <style>
             body {{ font-family: 'Microsoft YaHei', sans-serif; color: #d0d0d0; }}
