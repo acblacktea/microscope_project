@@ -272,7 +272,20 @@ class AnalysisPanel(QWidget):
 
     def onAnalysisFinished(self, result: str):
         """Gemini 返回结果后显示"""
-        self.txt_results.setMarkdown(result)
+        styled_html = f"""
+        <style>
+            body {{ font-family: 'Microsoft YaHei', sans-serif; color: #d0d0d0; }}
+            h2 {{ color: #4a9eff; font-size: 15px; margin: 16px 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid #333; }}
+            ul {{ margin: 4px 0; padding-left: 20px; }}
+            li {{ margin: 4px 0; line-height: 1.6; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 8px 0; }}
+            th {{ background-color: #2a2a4a; color: #4a9eff; padding: 8px; text-align: left; border: 1px solid #333; }}
+            td {{ padding: 8px; border: 1px solid #333; line-height: 1.5; }}
+            tr:nth-child(even) {{ background-color: #1a1a3e; }}
+        </style>
+        {result}
+        """
+        self.txt_results.setHtml(styled_html)
         self.lbl_capture_status.setText("分析完成")
         self.btn_analyze.setEnabled(True)
         self.worker = None
