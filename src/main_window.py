@@ -390,18 +390,51 @@ class AnalysisPanel(QWidget):
 
         try:
             from docx import Document
-            from docx.shared import Inches, RGBColor
+            from docx.shared import Inches, Pt, RGBColor
             from docx.enum.text import WD_ALIGN_PARAGRAPH
             from docx.enum.table import WD_TABLE_ALIGNMENT
         except ImportError:
             self.lbl_status.setText("缺少 python-docx，请执行 pip install python-docx")
             return
 
+        FONT_NAME = '微软雅黑'
+
         doc = Document()
+
+        # 设置默认字体为中文字体
+        style = doc.styles['Normal']
+        style.font.name = FONT_NAME
+        style.font.size = Pt(11)
+        style.element.rPr.rFonts.set(
+            '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}eastAsia', FONT_NAME
+        )
 
         # 标题
         title = doc.add_heading('藻类AI智慧分析报告', level=0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in title.runs:
+            run.font.name = FONT_NAME
+            run._element.rPr.rFonts.set(
+                '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}eastAsia', FONT_NAME
+            )
+
+        def set_run_font(run, font_name=FONT_NAME, size=None, bold=False, color=None):
+            """给 run 设置中文字体"""
+            run.font.name = font_name
+            run._element.rPr.rFonts.set(
+                '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}eastAsia', font_name
+            )
+            if size:
+                run.font.size = size
+            if bold:
+                run.bold = True
+            if color:
+                run.font.color.rgb = color
+
+        def set_paragraph_font(paragraph):
+            """给段落所有 run 设置中文字体"""
+            for run in paragraph.runs:
+                set_run_font(run)
 
         # 解析 HTML 内容写入 Word
         html = self._raw_result
@@ -421,7 +454,9 @@ class AnalysisPanel(QWidget):
             # h2 标题
             if part.startswith('<h2>'):
                 text = re.sub(r'<.*?>', '', part)
-                doc.add_heading(text, level=2)
+                h = doc.add_heading(text, level=2)
+                for run in h.runs:
+                    set_run_font(run)
                 in_list = False
 
             # 表格
@@ -443,12 +478,11 @@ class AnalysisPanel(QWidget):
                                 clean = re.sub(r'<.*?>', '', cell_text).strip()
                                 cell = row.cells[col_idx]
                                 cell.text = clean
-                                # 表头加粗
-                                if row_idx == 0:
-                                    for p in cell.paragraphs:
-                                        for run in p.runs:
-                                            run.bold = True
-                                            run.font.color.rgb = RGBColor(0x1a, 0x5f, 0xb4)
+                                for p in cell.paragraphs:
+                                    for run in p.runs:
+                                        set_run_font(run,
+                                                     bold=(row_idx == 0),
+                                                     color=RGBColor(0x1a, 0x5f, 0xb4) if row_idx == 0 else None)
                         doc.add_paragraph()  # 表格后空行
                 in_list = False
 
@@ -456,7 +490,8 @@ class AnalysisPanel(QWidget):
             elif part.startswith('<li>'):
                 text = re.sub(r'<.*?>', '', part).strip()
                 if text:
-                    doc.add_paragraph(text, style='List Bullet')
+                    p = doc.add_paragraph(text, style='List Bullet')
+                    set_paragraph_font(p)
                 in_list = True
 
             # ul 块（里面的 li 可能没被单独匹配到）
@@ -465,18 +500,22 @@ class AnalysisPanel(QWidget):
                 for item in items:
                     text = re.sub(r'<.*?>', '', item).strip()
                     if text:
-                        doc.add_paragraph(text, style='List Bullet')
+                        p = doc.add_paragraph(text, style='List Bullet')
+                        set_paragraph_font(p)
                 in_list = True
 
             # 普通文本
             else:
                 text = re.sub(r'<.*?>', '', part).strip()
                 if text and not in_list:
-                    doc.add_paragraph(text)
+                    p = doc.add_paragraph(text)
+                    set_paragraph_font(p)
 
         # 添加截取的图片
         if self.captured_images:
-            doc.add_heading('显微镜样本图像', level=2)
+            h = doc.add_heading('显微镜样本图像', level=2)
+            for run in h.runs:
+                set_run_font(run)
             for img_data in self.captured_images:
                 doc.add_picture(io.BytesIO(img_data), width=Inches(2.5))
                 last_paragraph = doc.paragraphs[-1]
