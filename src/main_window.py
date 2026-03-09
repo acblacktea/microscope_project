@@ -203,6 +203,9 @@ class AnalysisPanel(QWidget):
         super().__init__(parent)
         self.camera_widget = camera_widget
         self.captured_images = []   # PNG bytes list
+        self.capture_count = 0      # 当前连拍已截取张数
+        self.capture_timer = QTimer(self)
+        self.capture_timer.timeout.connect(self._captureOneFrame)
         self.worker = None
 
         # 标题
@@ -280,20 +283,37 @@ class AnalysisPanel(QWidget):
         self.setLayout(layout)
 
     def onCapture(self):
-        """截取当前相机画面一帧"""
+        """点击截取：每隔1秒拍一张，共拍3张"""
         frame = self.camera_widget.getCurrentFrame()
         if frame is None:
             self.lbl_status.setText("请先打开相机。")
             return
 
-        buf = QBuffer()
-        buf.open(QIODevice.OpenModeFlag.WriteOnly)
-        frame.save(buf, "PNG")
-        self.captured_images.append(bytes(buf.data()))
-        buf.close()
+        self.btn_capture.setEnabled(False)
+        self.capture_count = 0
+        # 立即拍第一张
+        self._captureOneFrame()
+        # 后续每隔1秒拍一张
+        self.capture_timer.start(1000)
 
+    def _captureOneFrame(self):
+        """采集一帧并转为 PNG 字节数据"""
+        frame = self.camera_widget.getCurrentFrame()
+        if frame is not None:
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            frame.save(buf, "PNG")
+            self.captured_images.append(bytes(buf.data()))
+            buf.close()
+
+        self.capture_count += 1
+        self.lbl_status.setText(f"正在截取... ({self.capture_count}/3)")
         self.refreshThumbnails()
-        self.lbl_status.setText(f"已截取 {len(self.captured_images)} 张图像")
+
+        if self.capture_count >= 3:
+            self.capture_timer.stop()
+            self.btn_capture.setEnabled(True)
+            self.lbl_status.setText(f"已截取 {len(self.captured_images)} 张图像")
 
     def removeImage(self, index: int):
         """删除指定索引的截图"""
