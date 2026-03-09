@@ -394,6 +394,9 @@ class AnalysisPanel(QWidget):
 
         doc = self.txt_results.document().clone()
         doc.setHtml(print_html)
+        page_rect = printer.pageRect(QPrinter.Unit.Point)
+        doc.setPageSize(page_rect.size())
+        doc.setDefaultFont(QFont("Microsoft YaHei", 11))
         doc.print(printer)
 
         self.lbl_status.setText(f"已导出: {os.path.basename(file_path)}")
