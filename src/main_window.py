@@ -229,24 +229,60 @@ class AnalysisPanel(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("显微镜藻类分析系统")
+        self.setWindowTitle("微生物智能分析系统")
         self.setMinimumSize(1200, 750)
 
-        # 主布局：左右分栏
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # 中央容器
+        central = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(12, 8, 12, 8)
+        main_layout.setSpacing(8)
+
+        # 顶部标题栏
+        header = QHBoxLayout()
+        lbl_title = QLabel("微生物智能分析系统")
+        lbl_title.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
+        lbl_title.setStyleSheet("color: #4a9eff; background: transparent; padding: 4px 0;")
+        header.addWidget(lbl_title)
+        header.addStretch()
+        main_layout.addLayout(header)
+
+        # 分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("background-color: #333; max-height: 1px;")
+        main_layout.addWidget(line)
+
+        # 左右分栏（可拖拽）
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setHandleWidth(6)
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #333;
+                border-radius: 2px;
+            }
+            QSplitter::handle:hover {
+                background-color: #4a9eff;
+            }
+        """)
 
         # 左侧：相机画面
         self.camera_widget = CameraWidget()
+        self.camera_widget.setMinimumWidth(400)
 
         # 右侧：分析面板
         self.analysis_panel = AnalysisPanel(self.camera_widget)
+        self.analysis_panel.setMinimumWidth(280)
 
-        splitter.addWidget(self.camera_widget)
-        splitter.addWidget(self.analysis_panel)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        self.splitter.addWidget(self.camera_widget)
+        self.splitter.addWidget(self.analysis_panel)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([900, 300])
 
-        self.setCentralWidget(splitter)
+        main_layout.addWidget(self.splitter, 1)
+        central.setLayout(main_layout)
+        self.setCentralWidget(central)
 
         # 全局样式
         self.setStyleSheet("""
