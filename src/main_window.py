@@ -5,13 +5,15 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'uvchamsdk.20250428', 'python'))
 import uvcham
 
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QThread, QBuffer, QIODevice
 from PyQt6.QtGui import QPixmap, QImage, QFont
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QMenu,
     QSplitter, QFrame, QSizePolicy
 )
+
+from gemini_service import analyze_images
 
 
 class CameraWidget(QWidget):
@@ -144,12 +146,32 @@ class CameraWidget(QWidget):
         return None
 
 
+class GeminiWorker(QThread):
+    """后台线程：调用 Gemini API 避免阻塞 UI"""
+    finished = pyqtSignal(str)
+
+    def __init__(self, image_data_list: list, parent=None):
+        super().__init__(parent)
+        self.image_data_list = image_data_list
+
+    def run(self):
+        try:
+            result = analyze_images(self.image_data_list)
+            self.finished.emit(result)
+        except Exception as e:
+            self.finished.emit(f"分析出错：{str(e)}")
+
+
 class AnalysisPanel(QWidget):
     """右侧面板：AI 分析控制与结果展示"""
 
     def __init__(self, camera_widget: CameraWidget, parent=None):
         super().__init__(parent)
         self.camera_widget = camera_widget
+        self.captured_images = []
+        self.capture_timer = QTimer(self)
+        self.capture_timer.timeout.connect(self.captureOneFrame)
+        self.worker = None
 
         # 标题
         title = QLabel("AI 智能分析")
@@ -174,8 +196,16 @@ class AnalysisPanel(QWidget):
             QPushButton:pressed {
                 background-color: #2a7edf;
             }
+            QPushButton:disabled {
+                background-color: #555;
+                color: #999;
+            }
         """)
         self.btn_analyze.clicked.connect(self.onAnalyze)
+
+        # 状态标签
+        self.lbl_capture_status = QLabel("")
+        self.lbl_capture_status.setStyleSheet("color: #4a9eff; font-size: 12px; background: transparent;")
 
         # 结果显示区域
         self.txt_results = QTextEdit()
@@ -195,35 +225,57 @@ class AnalysisPanel(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(title)
         layout.addWidget(self.btn_analyze)
+        layout.addWidget(self.lbl_capture_status)
         layout.addWidget(self.txt_results, 1)
         self.setLayout(layout)
 
     def onAnalyze(self):
-        """AI 分析逻辑占位"""
+        """点击分析：每隔1秒截取一张图，共5张，然后调用 Gemini"""
         frame = self.camera_widget.getCurrentFrame()
         if frame is None:
             self.txt_results.setPlainText("请先打开相机。")
             return
 
-        # TODO: 接入实际的 AI 分析逻辑
-        self.txt_results.setHtml(
-            "<h3>分析报告</h3>"
-            "<p><b>藻类浓度：</b></p>"
-            "<ul>"
-            "<li>绿藻：-- cells/mL</li>"
-            "<li>蓝绿藻：-- cells/mL</li>"
-            "<li>硅藻：-- cells/mL</li>"
-            "</ul>"
-            "<p><b>健康度评估：</b></p>"
-            "<ul>"
-            "<li>整体健康度：--</li>"
-            "<li>水质指数：--</li>"
-            "</ul>"
-            "<p><b>养殖建议：</b></p>"
-            "<ul>"
-            "<li>待接入 AI 分析模块</li>"
-            "</ul>"
-        )
+        self.btn_analyze.setEnabled(False)
+        self.captured_images.clear()
+        self.txt_results.clear()
+        self.lbl_capture_status.setText("正在采集图像... (0/5)")
+
+        # 立即采集第一张
+        self.captureOneFrame()
+        # 后续每隔1秒采集一张
+        self.capture_timer.start(1000)
+
+    def captureOneFrame(self):
+        """采集一帧并转为 PNG 字节数据"""
+        frame = self.camera_widget.getCurrentFrame()
+        if frame is not None:
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            frame.save(buf, "PNG")
+            self.captured_images.append(bytes(buf.data()))
+            buf.close()
+
+        count = len(self.captured_images)
+        self.lbl_capture_status.setText(f"正在采集图像... ({count}/5)")
+
+        if count >= 5:
+            self.capture_timer.stop()
+            self.lbl_capture_status.setText("采集完成，正在调用 AI 分析...")
+            self.startGeminiAnalysis()
+
+    def startGeminiAnalysis(self):
+        """在后台线程中调用 Gemini API"""
+        self.worker = GeminiWorker(self.captured_images)
+        self.worker.finished.connect(self.onAnalysisFinished)
+        self.worker.start()
+
+    def onAnalysisFinished(self, result: str):
+        """Gemini 返回结果后显示"""
+        self.txt_results.setMarkdown(result)
+        self.lbl_capture_status.setText("分析完成")
+        self.btn_analyze.setEnabled(True)
+        self.worker = None
 
 
 class MainWindow(QMainWindow):

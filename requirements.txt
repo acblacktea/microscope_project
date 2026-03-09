@@ -1,1 +1,2 @@
 PyQt6>=6.5
+google-genai>=1.0
