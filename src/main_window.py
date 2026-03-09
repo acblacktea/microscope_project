@@ -1,5 +1,8 @@
 import sys
 import os
+import io
+import base64
+import re
 
 # Add uvcham SDK to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'uvchamsdk.20250428', 'python'))
@@ -273,9 +276,23 @@ class AnalysisPanel(QWidget):
         """)
         self.btn_export.clicked.connect(self.onExportPDF)
 
+        self.btn_export_word = QPushButton("导出Word")
+        self.btn_export_word.setFixedHeight(44)
+        self.btn_export_word.setStyleSheet("""
+            QPushButton {
+                background-color: #2b5797; color: white; font-size: 15px;
+                font-weight: bold; border: none; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #234a82; }
+            QPushButton:pressed { background-color: #1c3d6e; }
+            QPushButton:disabled { background-color: #555; color: #999; }
+        """)
+        self.btn_export_word.clicked.connect(self.onExportWord)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.addWidget(self.btn_analyze, 3)
+        btn_row.addWidget(self.btn_export_word, 1)
         btn_row.addWidget(self.btn_export, 1)
 
         # 状态标签
@@ -359,6 +376,115 @@ class AnalysisPanel(QWidget):
             thumb.removed.connect(self.removeImage)
             self.thumb_layout.addWidget(thumb, i // cols, i % cols)
 
+    def onExportWord(self):
+        """将分析结果导出为 Word 文档"""
+        if not self._raw_result:
+            self.lbl_status.setText("没有可导出的分析结果。")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出Word", "藻类分析报告.docx", "Word文件 (*.docx)"
+        )
+        if not file_path:
+            return
+
+        try:
+            from docx import Document
+            from docx.shared import Inches, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.enum.table import WD_TABLE_ALIGNMENT
+        except ImportError:
+            self.lbl_status.setText("缺少 python-docx，请执行 pip install python-docx")
+            return
+
+        doc = Document()
+
+        # 标题
+        title = doc.add_heading('藻类AI智慧分析报告', level=0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # 解析 HTML 内容写入 Word
+        html = self._raw_result
+        # 去除可能的 ```html 包裹
+        html = re.sub(r'^```html\s*', '', html.strip())
+        html = re.sub(r'\s*```$', '', html.strip())
+
+        # 简单 HTML 解析：按标签拆分内容
+        parts = re.split(r'(<h2>.*?</h2>|<table>.*?</table>|<ul>.*?</ul>|<li>.*?</li>)', html, flags=re.DOTALL)
+
+        in_list = False
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+
+            # h2 标题
+            if part.startswith('<h2>'):
+                text = re.sub(r'<.*?>', '', part)
+                doc.add_heading(text, level=2)
+                in_list = False
+
+            # 表格
+            elif part.startswith('<table>'):
+                rows_html = re.findall(r'<tr>(.*?)</tr>', part, re.DOTALL)
+                if rows_html:
+                    # 解析第一行确定列数
+                    first_cells = re.findall(r'<t[hd]>(.*?)</t[hd]>', rows_html[0], re.DOTALL)
+                    num_cols = len(first_cells)
+                    if num_cols > 0:
+                        table = doc.add_table(rows=0, cols=num_cols)
+                        table.style = 'Table Grid'
+                        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+                        for row_idx, row_html in enumerate(rows_html):
+                            cells_text = re.findall(r'<t[hd]>(.*?)</t[hd]>', row_html, re.DOTALL)
+                            row = table.add_row()
+                            for col_idx, cell_text in enumerate(cells_text):
+                                clean = re.sub(r'<.*?>', '', cell_text).strip()
+                                cell = row.cells[col_idx]
+                                cell.text = clean
+                                # 表头加粗
+                                if row_idx == 0:
+                                    for p in cell.paragraphs:
+                                        for run in p.runs:
+                                            run.bold = True
+                                            run.font.color.rgb = RGBColor(0x1a, 0x5f, 0xb4)
+                        doc.add_paragraph()  # 表格后空行
+                in_list = False
+
+            # 列表项
+            elif part.startswith('<li>'):
+                text = re.sub(r'<.*?>', '', part).strip()
+                if text:
+                    doc.add_paragraph(text, style='List Bullet')
+                in_list = True
+
+            # ul 块（里面的 li 可能没被单独匹配到）
+            elif part.startswith('<ul>'):
+                items = re.findall(r'<li>(.*?)</li>', part, re.DOTALL)
+                for item in items:
+                    text = re.sub(r'<.*?>', '', item).strip()
+                    if text:
+                        doc.add_paragraph(text, style='List Bullet')
+                in_list = True
+
+            # 普通文本
+            else:
+                text = re.sub(r'<.*?>', '', part).strip()
+                if text and not in_list:
+                    doc.add_paragraph(text)
+
+        # 添加截取的图片
+        if self.captured_images:
+            doc.add_heading('显微镜样本图像', level=2)
+            for img_data in self.captured_images:
+                doc.add_picture(io.BytesIO(img_data), width=Inches(2.5))
+                last_paragraph = doc.paragraphs[-1]
+                last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        doc.save(file_path)
+        self.lbl_status.setText(f"已导出: {os.path.basename(file_path)}")
+
     def onExportPDF(self):
         """将分析结果导出为 PDF"""
         html = self.txt_results.toHtml()
@@ -371,6 +497,13 @@ class AnalysisPanel(QWidget):
         )
         if not file_path:
             return
+
+        # 构建图片 HTML
+        images_html = '<h2>显微镜样本图像</h2><p>'
+        for img_data in self.captured_images:
+            b64 = base64.b64encode(img_data).decode('ascii')
+            images_html += f'<img src="data:image/png;base64,{b64}" width="200" height="150" /> '
+        images_html += '</p>'
 
         # 构建打印用 HTML（白底黑字，适合打印）
         print_html = f"""
@@ -386,6 +519,7 @@ class AnalysisPanel(QWidget):
         </style>
         <h1 style="text-align:center; color:#1a5fb4;">藻类AI智慧分析报告</h1>
         {self._raw_result}
+        {images_html}
         """
 
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
