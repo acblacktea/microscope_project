@@ -281,7 +281,7 @@ class AnalysisPanel(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("微生物智能分析系统")
+        self.setWindowTitle("荣宇藻类AI智慧分析")
         self.setMinimumSize(1200, 750)
 
         # 中央容器
@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
 
         # 顶部标题栏
         header = QHBoxLayout()
-        lbl_title = QLabel("微生物智能分析系统")
+        lbl_title = QLabel("荣宇藻类AI智慧分析")
         lbl_title.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         lbl_title.setStyleSheet("color: #4a9eff; background: transparent; padding: 4px 0;")
         header.addWidget(lbl_title)
