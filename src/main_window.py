@@ -388,7 +388,7 @@ class AnalysisPanel(QWidget):
         {self._raw_result}
         """
 
-        printer = QPrinter(QPrinter.Mode.HighResolution)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
         printer.setOutputFileName(file_path)
 
