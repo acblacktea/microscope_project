@@ -307,11 +307,13 @@ class AnalysisPanel(QWidget):
             "title": "藻类智能分析",
             "report_title": "藻类AI智慧分析报告",
             "export_name": "藻类分析报告",
+            "capture_count": 2,
         },
         "shrimp": {
             "title": "虾体健康分析",
             "report_title": "虾体AI健康诊断报告",
             "export_name": "虾体健康报告",
+            "capture_count": 1,
         },
     }
 
@@ -434,18 +436,20 @@ class AnalysisPanel(QWidget):
         self.setLayout(layout)
 
     def onCapture(self):
-        """点击截取：每隔1秒拍一张，共拍3张"""
+        """点击截取：根据模式每隔1秒拍指定张数"""
         frame = self.camera_widget.getCurrentFrame()
         if frame is None:
             self.lbl_status.setText("请先打开相机。")
             return
 
+        self._capture_total = self.cfg["capture_count"]
         self.btn_capture.setEnabled(False)
         self.capture_count = 0
         # 立即拍第一张
         self._captureOneFrame()
-        # 后续每隔1秒拍一张
-        self.capture_timer.start(1000)
+        # 如果需要多张，后续每隔1秒拍一张
+        if self._capture_total > 1:
+            self.capture_timer.start(1000)
 
     def _captureOneFrame(self):
         """采集一帧并转为 PNG 字节数据"""
@@ -458,10 +462,11 @@ class AnalysisPanel(QWidget):
             buf.close()
 
         self.capture_count += 1
-        self.lbl_status.setText(f"正在截取... ({self.capture_count}/3)")
+        total = self._capture_total
+        self.lbl_status.setText(f"正在截取... ({self.capture_count}/{total})")
         self.refreshThumbnails()
 
-        if self.capture_count >= 3:
+        if self.capture_count >= total:
             self.capture_timer.stop()
             self.btn_capture.setEnabled(True)
             self.lbl_status.setText(f"已截取 {len(self.captured_images)} 张图像")
