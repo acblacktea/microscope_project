@@ -84,14 +84,25 @@ class CameraWidget(QWidget):
         self.adjust_overlay = ImageAdjustPanel(self, parent=self)
         self.adjust_overlay.setFixedWidth(220)
         self.adjust_overlay.setMouseTracking(True)
+        self.adjust_overlay.setAutoFillBackground(True)
+        self.adjust_overlay.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.adjust_overlay.setObjectName("adjustOverlay")
         self.adjust_overlay.setStyleSheet("""
             QWidget#adjustOverlay {
                 background-color: rgba(22, 33, 62, 230);
                 border: 1px solid #4a9eff;
                 border-radius: 8px;
             }
+            QWidget#adjustOverlay QLabel {
+                background: transparent;
+            }
+            QWidget#adjustOverlay QPushButton {
+                background-color: #2a9d8f;
+            }
+            QWidget#adjustOverlay QWidget {
+                background: transparent;
+            }
         """)
-        self.adjust_overlay.setObjectName("adjustOverlay")
         # 初始位置在可视区域外（左侧隐藏）
         self.adjust_overlay.move(-220, 40)
         self.adjust_overlay.show()
