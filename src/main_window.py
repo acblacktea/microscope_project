@@ -8,13 +8,14 @@ import re
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'uvchamsdk.20250428', 'python'))
 import uvcham
 
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QThread, QBuffer, QIODevice
+from PyQt6.QtCore import (pyqtSignal, Qt, QTimer, QThread, QBuffer,
+                          QIODevice, QPropertyAnimation, QEasingCurve, QPoint)
 from PyQt6.QtGui import QPixmap, QImage, QFont
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QMenu,
     QSplitter, QFrame, QSizePolicy, QScrollArea, QGridLayout,
-    QFileDialog, QTabWidget, QSlider
+    QFileDialog, QSlider
 )
 from PyQt6.QtPrintSupport import QPrinter
 
@@ -25,6 +26,8 @@ class CameraWidget(QWidget):
     """左侧面板：显微镜实时视频画面"""
     evtCallback = pyqtSignal(int)
 
+    HOVER_ZONE_WIDTH = 40  # 鼠标靠近左边缘多少像素时触发
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hcam = None
@@ -33,6 +36,7 @@ class CameraWidget(QWidget):
         self.pData = None
         self.frame = 0
         self.timer = QTimer(self)
+        self.setMouseTracking(True)
 
         # 视频显示区域
         self.lbl_video = QLabel("未连接相机")
@@ -42,6 +46,7 @@ class CameraWidget(QWidget):
             "font-size: 16px; border: 1px solid #333; border-radius: 4px; }"
         )
         self.lbl_video.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.lbl_video.setMouseTracking(True)
 
         # 相机控制栏
         self.btn_open = QPushButton("打开相机")
@@ -63,6 +68,85 @@ class CameraWidget(QWidget):
 
         self.evtCallback.connect(self.onEvtCallback)
         self.timer.timeout.connect(self.onTimer)
+
+        # 浮动调节面板（作为子 widget 覆盖在画面左侧）
+        self.adjust_overlay = None  # 延迟初始化，等 layout 完成
+        self._overlay_visible = False
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.setInterval(400)
+        self._hide_timer.timeout.connect(self._hideOverlay)
+
+    def _ensureOverlay(self):
+        """延迟创建浮动调节面板"""
+        if self.adjust_overlay is not None:
+            return
+        self.adjust_overlay = ImageAdjustPanel(self, parent=self)
+        self.adjust_overlay.setFixedWidth(220)
+        self.adjust_overlay.setMouseTracking(True)
+        self.adjust_overlay.setStyleSheet("""
+            QWidget#adjustOverlay {
+                background-color: rgba(22, 33, 62, 230);
+                border: 1px solid #4a9eff;
+                border-radius: 8px;
+            }
+        """)
+        self.adjust_overlay.setObjectName("adjustOverlay")
+        # 初始位置在可视区域外（左侧隐藏）
+        self.adjust_overlay.move(-220, 40)
+        self.adjust_overlay.show()
+
+    def _showOverlay(self):
+        """滑入浮动面板"""
+        self._ensureOverlay()
+        if self._overlay_visible:
+            return
+        self._hide_timer.stop()
+        self._overlay_visible = True
+        self.adjust_overlay.setFixedHeight(self.height() - 80)
+        self.adjust_overlay.syncFromCamera()
+
+        anim = QPropertyAnimation(self.adjust_overlay, b"pos", self)
+        anim.setDuration(200)
+        anim.setStartValue(self.adjust_overlay.pos())
+        anim.setEndValue(QPoint(8, 40))
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.start()
+        self._anim = anim  # prevent GC
+
+    def _hideOverlay(self):
+        """滑出浮动面板"""
+        if not self._overlay_visible or self.adjust_overlay is None:
+            return
+        self._overlay_visible = False
+
+        anim = QPropertyAnimation(self.adjust_overlay, b"pos", self)
+        anim.setDuration(200)
+        anim.setStartValue(self.adjust_overlay.pos())
+        anim.setEndValue(QPoint(-220, 40))
+        anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        anim.start()
+        self._anim = anim
+
+    def mouseMoveEvent(self, event):
+        """鼠标在画面左边缘区域时显示调节面板"""
+        pos = event.position() if hasattr(event, 'position') else event.pos()
+        x = int(pos.x())
+        if x <= self.HOVER_ZONE_WIDTH:
+            self._showOverlay()
+        elif self._overlay_visible and self.adjust_overlay is not None:
+            # 检查鼠标是否在浮动面板区域内
+            overlay_rect = self.adjust_overlay.geometry()
+            mouse_pt = QPoint(int(pos.x()), int(pos.y()))
+            if not overlay_rect.contains(mouse_pt):
+                self._hide_timer.start()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        """鼠标离开 CameraWidget 时延迟隐藏"""
+        if self._overlay_visible:
+            self._hide_timer.start()
+        super().leaveEvent(event)
 
     @staticmethod
     def cameraCallback(nEvent, ctx):
@@ -616,11 +700,12 @@ class AnalysisPanel(QWidget):
 
 
 class ImageAdjustPanel(QWidget):
-    """画面调节面板：饱和度、对比度、曝光度滑动条"""
+    """画面调节面板：饱和度、对比度、曝光度滑动条（浮动覆盖层）"""
 
     def __init__(self, camera_widget: CameraWidget, parent=None):
         super().__init__(parent)
         self.camera_widget = camera_widget
+        self.setMouseTracking(True)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(8, 12, 8, 12)
@@ -755,6 +840,18 @@ class ImageAdjustPanel(QWidget):
                 pass
         self.lbl_status.setText("已恢复默认值。")
 
+    def enterEvent(self, event):
+        """鼠标进入面板时取消隐藏计时"""
+        if hasattr(self.camera_widget, '_hide_timer'):
+            self.camera_widget._hide_timer.stop()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """鼠标离开面板时启动隐藏计时"""
+        if hasattr(self.camera_widget, '_hide_timer'):
+            self.camera_widget._hide_timer.start()
+        super().leaveEvent(event)
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -800,47 +897,12 @@ class MainWindow(QMainWindow):
         self.camera_widget = CameraWidget()
         self.camera_widget.setMinimumWidth(400)
 
-        # 右侧：Tab 面板（AI分析 + 画面调节）
-        self.right_tabs = QTabWidget()
-        self.right_tabs.setMinimumWidth(280)
-        self.right_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #333;
-                border-radius: 4px;
-                background-color: #16213e;
-            }
-            QTabBar::tab {
-                background-color: #1a1a2e;
-                color: #999;
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: bold;
-                border: 1px solid #333;
-                border-bottom: none;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: #16213e;
-                color: #4a9eff;
-                border-bottom: 2px solid #4a9eff;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #222244;
-                color: #ccc;
-            }
-        """)
-
+        # 右侧：分析面板
         self.analysis_panel = AnalysisPanel(self.camera_widget)
-        self.adjust_panel = ImageAdjustPanel(self.camera_widget)
-
-        self.right_tabs.addTab(self.analysis_panel, "AI 智能分析")
-        self.right_tabs.addTab(self.adjust_panel, "画面调节")
-        self.right_tabs.currentChanged.connect(self._onTabChanged)
+        self.analysis_panel.setMinimumWidth(280)
 
         self.splitter.addWidget(self.camera_widget)
-        self.splitter.addWidget(self.right_tabs)
+        self.splitter.addWidget(self.analysis_panel)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([900, 300])
@@ -863,11 +925,6 @@ class MainWindow(QMainWindow):
             }
             QPushButton:hover { background-color: #3a3a5a; }
         """)
-
-    def _onTabChanged(self, index):
-        """切换到画面调节 tab 时自动同步相机参数"""
-        if index == 1:
-            self.adjust_panel.syncFromCamera()
 
     def closeEvent(self, event):
         self.camera_widget.closeCamera()
