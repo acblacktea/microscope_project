@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QMenu,
     QSplitter, QFrame, QSizePolicy, QScrollArea, QGridLayout,
-    QFileDialog, QSlider
+    QFileDialog, QSlider, QTabWidget
 )
 from PyQt6.QtPrintSupport import QPrinter
 
@@ -251,13 +251,14 @@ class GeminiWorker(QThread):
     """后台线程：调用 Gemini API 避免阻塞 UI"""
     finished = pyqtSignal(str)
 
-    def __init__(self, image_data_list: list, parent=None):
+    def __init__(self, image_data_list: list, mode: str = "algae", parent=None):
         super().__init__(parent)
         self.image_data_list = image_data_list
+        self.mode = mode
 
     def run(self):
         try:
-            result = analyze_images(self.image_data_list)
+            result = analyze_images(self.image_data_list, mode=self.mode)
             self.finished.emit(result)
         except Exception as e:
             self.finished.emit(f"分析出错：{str(e)}")
@@ -300,9 +301,25 @@ class ThumbnailWidget(QWidget):
 class AnalysisPanel(QWidget):
     """右侧面板：截图管理 + AI 分析结果展示"""
 
-    def __init__(self, camera_widget: CameraWidget, parent=None):
+    # 模式配置
+    MODE_CONFIG = {
+        "algae": {
+            "title": "藻类智能分析",
+            "report_title": "藻类AI智慧分析报告",
+            "export_name": "藻类分析报告",
+        },
+        "shrimp": {
+            "title": "虾体健康分析",
+            "report_title": "虾体AI健康诊断报告",
+            "export_name": "虾体健康报告",
+        },
+    }
+
+    def __init__(self, camera_widget: CameraWidget, mode: str = "algae", parent=None):
         super().__init__(parent)
         self.camera_widget = camera_widget
+        self.mode = mode
+        self.cfg = self.MODE_CONFIG.get(mode, self.MODE_CONFIG["algae"])
         self.captured_images = []   # PNG bytes list
         self._raw_result = ""       # AI 返回的原始 HTML
         self.capture_count = 0      # 当前连拍已截取张数
@@ -311,9 +328,9 @@ class AnalysisPanel(QWidget):
         self.worker = None
 
         # 标题
-        title = QLabel("AI 智能分析")
-        title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        title.setStyleSheet("color: #e0e0e0; padding: 8px 0;")
+        title = QLabel(self.cfg["title"])
+        title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        title.setStyleSheet("color: #e0e0e0; padding: 4px 0;")
 
         # 截取图像按钮
         self.btn_capture = QPushButton("截取图像")
@@ -479,7 +496,7 @@ class AnalysisPanel(QWidget):
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出Word", "藻类分析报告.docx", "Word文件 (*.docx)"
+            self, "导出Word", f"{self.cfg['export_name']}.docx", "Word文件 (*.docx)"
         )
         if not file_path:
             return
@@ -506,7 +523,7 @@ class AnalysisPanel(QWidget):
         )
 
         # 标题
-        title = doc.add_heading('藻类AI智慧分析报告', level=0)
+        title = doc.add_heading(self.cfg['report_title'], level=0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in title.runs:
             run.font.name = FONT_NAME
@@ -628,7 +645,7 @@ class AnalysisPanel(QWidget):
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出PDF", "藻类分析报告.pdf", "PDF文件 (*.pdf)"
+            self, "导出PDF", f"{self.cfg['export_name']}.pdf", "PDF文件 (*.pdf)"
         )
         if not file_path:
             return
@@ -652,7 +669,7 @@ class AnalysisPanel(QWidget):
             td {{ padding: 6px 8px; border: 1px solid #bbb; line-height: 1.5; }}
             tr:nth-child(even) {{ background-color: #f5f5f5; }}
         </style>
-        <h1 style="text-align:center; color:#1a5fb4;">藻类AI智慧分析报告</h1>
+        <h1 style="text-align:center; color:#1a5fb4;">{self.cfg['report_title']}</h1>
         {self._raw_result}
         {images_html}
         """
@@ -684,7 +701,7 @@ class AnalysisPanel(QWidget):
 
     def startGeminiAnalysis(self):
         """在后台线程中调用 Gemini API"""
-        self.worker = GeminiWorker(self.captured_images)
+        self.worker = GeminiWorker(self.captured_images, mode=self.mode)
         self.worker.finished.connect(self.onAnalysisFinished)
         self.worker.start()
 
@@ -868,7 +885,7 @@ class ImageAdjustPanel(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("荣宇藻类AI智慧分析")
+        self.setWindowTitle("荣宇AI智慧分析系统")
         self.setMinimumSize(1200, 750)
 
         # 中央容器
@@ -879,7 +896,7 @@ class MainWindow(QMainWindow):
 
         # 顶部标题栏
         header = QHBoxLayout()
-        lbl_title = QLabel("荣宇藻类AI智慧分析")
+        lbl_title = QLabel("荣宇AI智慧分析系统")
         lbl_title.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         lbl_title.setStyleSheet("color: #4a9eff; background: transparent; padding: 4px 0;")
         header.addWidget(lbl_title)
@@ -909,12 +926,46 @@ class MainWindow(QMainWindow):
         self.camera_widget = CameraWidget()
         self.camera_widget.setMinimumWidth(400)
 
-        # 右侧：分析面板
-        self.analysis_panel = AnalysisPanel(self.camera_widget)
-        self.analysis_panel.setMinimumWidth(280)
+        # 右侧：分析面板（Tab 切换藻类/虾分析）
+        self.right_tabs = QTabWidget()
+        self.right_tabs.setMinimumWidth(280)
+        self.right_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #333;
+                border-radius: 4px;
+                background-color: #16213e;
+            }
+            QTabBar::tab {
+                background-color: #1a1a2e;
+                color: #999;
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                border: 1px solid #333;
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #16213e;
+                color: #4a9eff;
+                border-bottom: 2px solid #4a9eff;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #222244;
+                color: #ccc;
+            }
+        """)
+
+        self.algae_panel = AnalysisPanel(self.camera_widget, mode="algae")
+        self.shrimp_panel = AnalysisPanel(self.camera_widget, mode="shrimp")
+
+        self.right_tabs.addTab(self.algae_panel, "藻类分析")
+        self.right_tabs.addTab(self.shrimp_panel, "虾体分析")
 
         self.splitter.addWidget(self.camera_widget)
-        self.splitter.addWidget(self.analysis_panel)
+        self.splitter.addWidget(self.right_tabs)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([900, 300])
