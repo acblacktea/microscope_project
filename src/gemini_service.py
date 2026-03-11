@@ -1,3 +1,4 @@
+import time
 from google import genai
 from google.genai import types
 
@@ -46,9 +47,16 @@ def analyze_images(image_data_list: list[bytes]) -> str:
     for img_data in image_data_list:
         contents.append(types.Part.from_bytes(data=img_data, mime_type="image/png"))
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=contents,
-    )
-
-    return response.text
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contents,
+            )
+            return response.text
+        except Exception as e:
+            if '503' in str(e) and attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise

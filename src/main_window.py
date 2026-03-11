@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QMenu,
     QSplitter, QFrame, QSizePolicy, QScrollArea, QGridLayout,
-    QFileDialog
+    QFileDialog, QTabWidget, QSlider
 )
 from PyQt6.QtPrintSupport import QPrinter
 
@@ -615,6 +615,147 @@ class AnalysisPanel(QWidget):
         self.worker = None
 
 
+class ImageAdjustPanel(QWidget):
+    """画面调节面板：饱和度、对比度、曝光度滑动条"""
+
+    def __init__(self, camera_widget: CameraWidget, parent=None):
+        super().__init__(parent)
+        self.camera_widget = camera_widget
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(8, 12, 8, 12)
+        layout.setSpacing(16)
+
+        title = QLabel("画面调节")
+        title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        title.setStyleSheet("color: #e0e0e0; padding: 8px 0;")
+        layout.addWidget(title)
+
+        # 定义三个参数：(名称, SDK常量)
+        self.params = [
+            ("饱和度", uvcham.UVCHAM_SATURATION),
+            ("对比度", uvcham.UVCHAM_CONTRAST),
+            ("曝光度", uvcham.UVCHAM_BRIGHTNESS),
+        ]
+        self.sliders = {}
+        self.value_labels = {}
+
+        for name, param_id in self.params:
+            row_widget = self._createSliderRow(name, param_id)
+            layout.addWidget(row_widget)
+
+        # 重置按钮
+        self.btn_reset = QPushButton("恢复默认值")
+        self.btn_reset.setFixedHeight(38)
+        self.btn_reset.setStyleSheet("""
+            QPushButton {
+                background-color: #2a9d8f; color: white; font-size: 14px;
+                font-weight: bold; border: none; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #21867a; }
+            QPushButton:pressed { background-color: #1a6f66; }
+        """)
+        self.btn_reset.clicked.connect(self.onReset)
+        layout.addWidget(self.btn_reset)
+
+        self.lbl_status = QLabel("")
+        self.lbl_status.setStyleSheet("color: #4a9eff; font-size: 12px; background: transparent;")
+        layout.addWidget(self.lbl_status)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+    def _createSliderRow(self, name: str, param_id: int) -> QWidget:
+        """创建一行：标签 + 滑动条 + 数值"""
+        container = QWidget()
+        v_layout = QVBoxLayout(container)
+        v_layout.setContentsMargins(0, 0, 0, 0)
+        v_layout.setSpacing(4)
+
+        # 标签和数值
+        h_layout = QHBoxLayout()
+        lbl_name = QLabel(name)
+        lbl_name.setStyleSheet("color: #e0e0e0; font-size: 14px; font-weight: bold; background: transparent;")
+        lbl_value = QLabel("--")
+        lbl_value.setStyleSheet("color: #4a9eff; font-size: 13px; background: transparent;")
+        lbl_value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        h_layout.addWidget(lbl_name)
+        h_layout.addStretch()
+        h_layout.addWidget(lbl_value)
+        v_layout.addLayout(h_layout)
+
+        # 滑动条
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #444; height: 6px; background: #1a1a2e; border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #4a9eff; border: none; width: 16px; height: 16px;
+                margin: -5px 0; border-radius: 8px;
+            }
+            QSlider::handle:horizontal:hover { background: #6ab4ff; }
+            QSlider::sub-page:horizontal { background: #4a9eff; border-radius: 3px; }
+        """)
+        slider.valueChanged.connect(lambda val, p=param_id, l=lbl_value: self._onSliderChanged(p, val, l))
+        v_layout.addWidget(slider)
+
+        self.sliders[param_id] = slider
+        self.value_labels[param_id] = lbl_value
+        return container
+
+    def _onSliderChanged(self, param_id: int, value: int, lbl: QLabel):
+        """滑动条值变化时更新相机参数"""
+        lbl.setText(str(value))
+        hcam = self.camera_widget.hcam
+        if hcam is not None:
+            try:
+                hcam.put(param_id, value)
+            except Exception:
+                pass
+
+    def syncFromCamera(self):
+        """从相机读取当前参数值和范围，同步到滑动条"""
+        hcam = self.camera_widget.hcam
+        if hcam is None:
+            self.lbl_status.setText("请先打开相机。")
+            return
+
+        for name, param_id in self.params:
+            try:
+                min_val, max_val, default_val = hcam.range(param_id)
+                cur_val = hcam.get(param_id)
+                slider = self.sliders[param_id]
+                slider.blockSignals(True)
+                slider.setRange(min_val, max_val)
+                slider.setValue(cur_val)
+                slider.blockSignals(False)
+                self.value_labels[param_id].setText(str(cur_val))
+            except Exception:
+                pass
+        self.lbl_status.setText("已同步相机参数。")
+
+    def onReset(self):
+        """恢复默认值"""
+        hcam = self.camera_widget.hcam
+        if hcam is None:
+            self.lbl_status.setText("请先打开相机。")
+            return
+
+        for name, param_id in self.params:
+            try:
+                min_val, max_val, default_val = hcam.range(param_id)
+                hcam.put(param_id, default_val)
+                slider = self.sliders[param_id]
+                slider.blockSignals(True)
+                slider.setValue(default_val)
+                slider.blockSignals(False)
+                self.value_labels[param_id].setText(str(default_val))
+            except Exception:
+                pass
+        self.lbl_status.setText("已恢复默认值。")
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -659,12 +800,47 @@ class MainWindow(QMainWindow):
         self.camera_widget = CameraWidget()
         self.camera_widget.setMinimumWidth(400)
 
-        # 右侧：分析面板
+        # 右侧：Tab 面板（AI分析 + 画面调节）
+        self.right_tabs = QTabWidget()
+        self.right_tabs.setMinimumWidth(280)
+        self.right_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #333;
+                border-radius: 4px;
+                background-color: #16213e;
+            }
+            QTabBar::tab {
+                background-color: #1a1a2e;
+                color: #999;
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                border: 1px solid #333;
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #16213e;
+                color: #4a9eff;
+                border-bottom: 2px solid #4a9eff;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #222244;
+                color: #ccc;
+            }
+        """)
+
         self.analysis_panel = AnalysisPanel(self.camera_widget)
-        self.analysis_panel.setMinimumWidth(280)
+        self.adjust_panel = ImageAdjustPanel(self.camera_widget)
+
+        self.right_tabs.addTab(self.analysis_panel, "AI 智能分析")
+        self.right_tabs.addTab(self.adjust_panel, "画面调节")
+        self.right_tabs.currentChanged.connect(self._onTabChanged)
 
         self.splitter.addWidget(self.camera_widget)
-        self.splitter.addWidget(self.analysis_panel)
+        self.splitter.addWidget(self.right_tabs)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([900, 300])
@@ -687,6 +863,11 @@ class MainWindow(QMainWindow):
             }
             QPushButton:hover { background-color: #3a3a5a; }
         """)
+
+    def _onTabChanged(self, index):
+        """切换到画面调节 tab 时自动同步相机参数"""
+        if index == 1:
+            self.adjust_panel.syncFromCamera()
 
     def closeEvent(self, event):
         self.camera_widget.closeCamera()
