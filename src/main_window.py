@@ -104,6 +104,7 @@ class CameraWidget(QWidget):
         self._hide_timer.stop()
         self._overlay_visible = True
         self.adjust_overlay.setFixedHeight(self.height() - 80)
+        self.adjust_overlay.raise_()  # 提到最前面，避免被视频画面遮挡
         self.adjust_overlay.syncFromCamera()
 
         anim = QPropertyAnimation(self.adjust_overlay, b"pos", self)
