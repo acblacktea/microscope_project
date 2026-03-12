@@ -351,6 +351,19 @@ class AnalysisPanel(QWidget):
         """)
         self.btn_capture.clicked.connect(self.onCapture)
 
+        # 清除截图按钮
+        self.btn_clear = QPushButton("清除截图")
+        self.btn_clear.setFixedHeight(38)
+        self.btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #e63946; color: white; font-size: 14px;
+                font-weight: bold; border: none; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: #c1121f; }
+            QPushButton:pressed { background-color: #a4161a; }
+        """)
+        self.btn_clear.clicked.connect(self.onClearImages)
+
         # 缩略图展示区域（用 FlowLayout 模拟：ScrollArea + GridLayout）
         self.thumb_container = QWidget()
         self.thumb_layout = QGridLayout(self.thumb_container)
@@ -432,7 +445,10 @@ class AnalysisPanel(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(title)
-        layout.addWidget(self.btn_capture)
+        capture_row = QHBoxLayout()
+        capture_row.addWidget(self.btn_clear)
+        capture_row.addWidget(self.btn_capture)
+        layout.addLayout(capture_row)
         layout.addWidget(self.thumb_scroll)
         layout.addLayout(btn_row)
         layout.addWidget(self.lbl_status)
@@ -481,6 +497,12 @@ class AnalysisPanel(QWidget):
             self.captured_images.pop(index)
             self.refreshThumbnails()
             self.lbl_status.setText(f"已截取 {len(self.captured_images)} 张图像")
+
+    def onClearImages(self):
+        """清除所有截图"""
+        self.captured_images.clear()
+        self.refreshThumbnails()
+        self.lbl_status.setText("已清除所有截图。")
 
     def refreshThumbnails(self):
         """刷新缩略图展示"""
