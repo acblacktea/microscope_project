@@ -351,8 +351,8 @@ class AnalysisPanel(QWidget):
         """)
         self.btn_capture.clicked.connect(self.onCapture)
 
-        # 清除截图按钮
-        self.btn_clear = QPushButton("清除截图")
+        # 清除样本按钮
+        self.btn_clear = QPushButton("清除样本")
         self.btn_clear.setFixedHeight(38)
         self.btn_clear.setStyleSheet("""
             QPushButton {
