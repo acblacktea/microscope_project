@@ -259,7 +259,10 @@ class GeminiWorker(QThread):
 
     def run(self):
         try:
-            result = analyze_images(self.image_data_list, mode=self.mode)
+            if self.mode == "shrimp":
+                result = analyze_images_doubao(self.image_data_list)
+            else:
+                result = analyze_images(self.image_data_list, mode=self.mode)
             self.finished.emit(result)
         except Exception as e:
             self.finished.emit(f"分析出错：{str(e)}")
