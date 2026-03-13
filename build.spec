@@ -24,6 +24,7 @@ a = Analysis(
     hiddenimports=[
         'google.genai',
         'google.genai.types',
+        'openai',
         'docx',
         'docx.shared',
         'docx.enum.text',
